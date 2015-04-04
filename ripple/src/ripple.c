@@ -39,13 +39,14 @@ static void timer_callback(void *data) {
 
   // Compose string of all data
   snprintf(s_buffer, sizeof(s_buffer), 
-	   "N X,Y,Z\n%d,%d,%d\n",
-	   data[0].x, data[0].y, data[0].z
+	   "X: %d\nY: %d\nZ: %d\n",
+	   accel.x, accel.y, accel.z
 	   );
   
   //Show the data
   text_layer_set_text(s_output_layer, s_buffer);
-  
+
+  app_timer_register(ACCEL_STEP_MS, timer_callback, NULL);
 }
 static void main_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
@@ -79,7 +80,7 @@ static void init() {
   app_timer_register(ACCEL_STEP_MS, timer_callback, NULL);
   
   // Choose update rate
-  accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
+  //accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
 }
 
 static void deinit() {

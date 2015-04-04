@@ -4,7 +4,7 @@
 #define NUM_DISCS 20
 #define DISC_DENSITY 0.25
 #define ACCEL_RATIO 0.05
-#define ACCEL_STEP_MS 50
+#define ACCEL_STEP_MS 20
 
 typedef struct Vec2d {
   double x;
