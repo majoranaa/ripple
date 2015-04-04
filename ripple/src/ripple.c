@@ -6,25 +6,47 @@
 
 #include <pebble.h>
 
+#define NUM_SAMPLES 3
+#define ACCEL_STEP_MS 50
+
 static Window *s_main_window;
 static TextLayer *s_output_layer;
 
-static void data_handler(AccelData *data, uint32_t num_samples) {
+/*
+  static void data_handler(AccelData *data, uint32_t num_samples) {
   // Long lived buffer
   static char s_buffer[128];
 
   // Compose string of all data
   snprintf(s_buffer, sizeof(s_buffer), 
-    "N X,Y,Z\n0 %d,%d,%d\n1 %d,%d,%d\n2 %d,%d,%d", 
-    data[0].x, data[0].y, data[0].z, 
-    data[1].x, data[1].y, data[1].z, 
-    data[2].x, data[2].y, data[2].z
+  "N X,Y,Z\n0 %d,%d,%d\n1 %d,%d,%d\n2 %d,%d,%d", 
+  data[0].x, data[0].y, data[0].z, 
+  data[1].x, data[1].y, data[1].z, 
+  data[2].x, data[2].y, data[2].z
   );
 
   //Show the data
   text_layer_set_text(s_output_layer, s_buffer);
-}
+  }
+*/
 
+static void timer_callback(void *data) {
+  // Long lived buffer
+  static char s_buffer[128];
+
+  AccelData accel = (AccelData) { .x = 0, .y = 0, .z = 0 };
+  accel_service_peek(&accel);
+
+  // Compose string of all data
+  snprintf(s_buffer, sizeof(s_buffer), 
+	   "N X,Y,Z\n%d,%d,%d\n",
+	   data[0].x, data[0].y, data[0].z
+	   );
+  
+  //Show the data
+  text_layer_set_text(s_output_layer, s_buffer);
+  
+}
 static void main_window_load(Window *window) {
   Layer *window_layer = window_get_root_layer(window);
   GRect window_bounds = layer_get_bounds(window_layer);
@@ -46,15 +68,16 @@ static void init() {
   // Create main Window
   s_main_window = window_create();
   window_set_window_handlers(s_main_window, (WindowHandlers) {
-    .load = main_window_load,
-    .unload = main_window_unload
-  });
+      .load = main_window_load,
+	.unload = main_window_unload
+	});
   window_stack_push(s_main_window, true);
 
   // Subscribe to the accelerometer data service
-  int num_samples = 3;
-  accel_data_service_subscribe(num_samples, data_handler);
-
+  //accel_data_service_subscribe(NUM_SAMPLES, data_handler);
+  accel_data_service_subscribe(0,NULL);
+  app_timer_register(ACCEL_STEP_MS, timer_callback, NULL);
+  
   // Choose update rate
   accel_service_set_sampling_rate(ACCEL_SAMPLING_10HZ);
 }
