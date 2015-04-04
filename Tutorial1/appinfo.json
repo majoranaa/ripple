@@ -1,0 +1,39 @@
+{
+    "uuid": "35c63e49-f14c-472d-802b-1b0d400b8853",
+    "shortName": "Tutorial1",
+    "longName": "Tutorial1",
+    "companyName": "Ochr",
+    "versionCode": 1,
+    "versionLabel": "1.0",
+    "watchapp": {
+	"watchface": true
+    },
+    "appKeys": {
+	"KEY_TEMPERATURE": 0,
+	"KEY_CONDITIONS": 1
+    },
+    "capabilities": [
+	"location"
+    ],
+    "resources": {
+	"media": [
+	    {
+		"type": "font",
+		"name": "FONT_PERFECT_DOS_48",
+		"file": "perfect-dos-vga.ttf",
+		"compatibility":"2.7"
+	    },
+	    {
+		"type": "font",
+		"name": "FONT_PERFECT_DOS_20",
+		"file": "perfect-dos-vga.ttf",
+		"compatibility":"2.7"
+	    },
+	    {
+		"type": "png",
+		"name": "BACKGROUND",
+		"file": "background.png"
+	    }
+	]
+    }
+}
