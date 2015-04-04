@@ -1,2 +1,19 @@
 TO INSTALL SDK
 link freetype from opt/X11/ to /usr/local
+
+export PEBBLE_PHONE=169.232.118.64
+
+GESTURES
+   Manual detection
+   Kalman Filter
+   SVM
+
+ANDROID MUSIC PLAYER
+   http://stackoverflow.com/questions/5129027/android-application-to-pause-resume-the-music-of-another-music-player-app
+   http://stackoverflow.com/questions/14910360/how-to-play-or-resume-music-of-another-music-player-from-my-code
+   http://stackoverflow.com/questions/5518438/in-android-control-play-pause-media-player-from-external-code
+   http://stackoverflow.com/questions/12121276/controlling-android-music-player-by-my-own-application
+
+MISC
+   Azure - https://account.windowsazure.com/Subscriptions/Statement?subscriptionId=7051dc37-a9bf-4d9a-a210-2b813ea50472
+   Bluemix - https://console.ng.bluemix.net/?ace_base=true#/resources/orgGuid=2127cc68-d633-43a3-b442-6cc6ead15ac9&spaceGuid=86d873e0-3874-4334-b6be-f8cb2209de3e
