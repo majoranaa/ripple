@@ -1,0 +1,17 @@
+{
+  "uuid": "75483a4f-dc0d-4f4d-90d9-b5dc8ad4dc17",
+  "shortName": "ripple",
+  "longName": "ripple",
+  "companyName": "Ochr",
+  "versionCode": 1,
+  "versionLabel": "1.0",
+  "watchapp": {
+    "watchface": false
+  },
+  "appKeys": {
+    "dummy": 0
+  },
+  "resources": {
+    "media": []
+  }
+}
