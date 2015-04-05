@@ -74,7 +74,6 @@ static void main_window_load(Window *window) {
   text_layer_set_text(s_output_layer2, "Nothing going on");
   text_layer_set_overflow_mode(s_output_layer2, GTextOverflowModeWordWrap);
   layer_add_child(window_layer, text_layer_get_layer(s_output_layer2));
-
 }
 
 static void main_window_unload(Window *window) {
