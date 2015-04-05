@@ -1,0 +1,17 @@
+{
+  "uuid": "77de8318-a909-4ecf-bad2-20ede942d820",
+  "shortName": "ripple_real",
+  "longName": "ripple_real",
+  "companyName": "MakeAwesomeHappen",
+  "versionCode": 1,
+  "versionLabel": "1.0",
+  "watchapp": {
+    "watchface": false
+  },
+  "appKeys": {
+    "dummy": 0
+  },
+  "resources": {
+    "media": []
+  }
+}
