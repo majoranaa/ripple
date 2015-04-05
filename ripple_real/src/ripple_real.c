@@ -53,9 +53,10 @@ static int accel_size;
 static int head; // head of buffer
 static int start_proc; // begin processing
 static int make_gesture;
+static int min_ges_i;
 static const float alpha = 0.1;
 static const float still_thresh = 1e5;
-static const float sum_thresh = 2e6;
+static const float sum_thresh = 1e6;
 static const int count_thresh = 4;
 
 // array of recorded gestures
@@ -178,7 +179,10 @@ static void update_time() {
   }
 */
 
-static void send_phone_message(int id, DataVec *data, int size) {
+static void send_phone_message() { // (int id, DataVec *data, int size) {
+  int id = gesture_count;
+  DataVec *data = gestures[gesture_count];
+  int size = gesture_sizes[gesture_count];
   const uint8_t key_count = 3;
   const uint32_t buffer_size = dict_calc_buffer_size(key_count, 4, sizeof(DataVec) * size, 4);
   uint8_t buffer[buffer_size];
@@ -191,6 +195,13 @@ static void send_phone_message(int id, DataVec *data, int size) {
   dict_write_data(iter_p, (uint32_t)KEY_NEW_GESTURE_DATA, (uint8_t *)data, (uint16_t)(sizeof(DataVec) * size));
   app_message_outbox_send();
   dict_write_end(iter_p);
+}
+
+static void send_gesture() {
+  DictionaryIterator *iter;
+  app_message_outbox_begin(&iter);
+  dict_write_int(iter, KEY_GESTURE, &min_ges_i, sizeof(int), true);
+  app_message_outbox_send();
 }
 
 static void timer_callback(void *data) {
@@ -214,7 +225,7 @@ static void timer_callback(void *data) {
   int delay1; // used for correlation
   int delay2;
   int delay; // correlation during regular listening
-  int start, end, num, size, min_ges_i;
+  int start, end, num, size;
   float sum, avg, min_ges;
   int i, j;
   AccelData accel = (AccelData) { .x = 0, .y = 0, .z = 0 };
@@ -325,7 +336,7 @@ static void timer_callback(void *data) {
 		    APP_LOG(APP_LOG_LEVEL_INFO, "%d", gestures[gesture_count][i].z);
 		    }*/
 		  light_enable(false); // success only
-		  send_phone_message(gesture_count, gestures[gesture_count], gesture_sizes[gesture_count]);
+		  app_timer_register(750, send_phone_message, NULL);
 		  gesture_count++;
 		  temp_count = 0;
 		}
@@ -405,10 +416,7 @@ static void timer_callback(void *data) {
 		  dict_write_int32(iter_p, (uint32_t)KEY_GESTURE, (uint32_t)(min_ges_i+1));
 		  app_message_outbox_send();
 		  dict_write_end(iter_p);*/
-		  DictionaryIterator *iter;
-		  app_message_outbox_begin(&iter);
-		  dict_write_int(iter, KEY_GESTURE, &min_ges_i, sizeof(int), true);
-		  app_message_outbox_send();
+		  app_timer_register(750, send_gesture, NULL);
 		}
 	      } else { // first stillness, find gesture/reference
 		find_ref = 1;
@@ -498,18 +506,6 @@ static void main_window_unload(Window *window) {
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   update_time();
-  // Get weather update every 30 minutes
-  if(tick_time->tm_min % 30 == 0) {
-    // Begin dictionary
-    DictionaryIterator *iter;
-    app_message_outbox_begin(&iter);
-  
-    // Add a key-value pair
-    dict_write_uint8(iter, 0, 0);
-  
-    // Send the message!
-    app_message_outbox_send();
-  }
 }
 
 static void gesture_callback3() {
