@@ -30,3 +30,6 @@ GESTURE // watch tells phone ID of gesture made
 MISC
    Azure - https://account.windowsazure.com/Subscriptions/Statement?subscriptionId=7051dc37-a9bf-4d9a-a210-2b813ea50472
    Bluemix - https://console.ng.bluemix.net/?ace_base=true#/resources/orgGuid=2127cc68-d633-43a3-b442-6cc6ead15ac9&spaceGuid=86d873e0-3874-4334-b6be-f8cb2209de3e
+
+increase stay_still size
+don't make a gesture at init

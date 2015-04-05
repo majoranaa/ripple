@@ -24,8 +24,9 @@
 #define MAX_GESTURES 9 // 4 default
 #define BUFF_SIZE 500
 
-#define max(a,b) ((a>b)?a:b)
-#define min(a,b) ((a>b)?b:a)
+#define max(a,b) (((a)>(b))?(a):(b))
+#define min(a,b) ((a>b)?(b):(a))
+#define abs(a) (((a)>0)?(a):(-(a)))
 
 typedef struct {
   int16_t x;
@@ -37,7 +38,9 @@ typedef struct {
 static Window *s_main_window;
 static TextLayer *s_time_layer;
 static TextLayer *s_output_layer;
+static TextLayer *s_output_layer2;
 static TextLayer *s_stay_still;
+static TextLayer *number;
 
 // resources
 static GFont s_time_font;
@@ -60,14 +63,14 @@ static int temp_count;
 static DataVec gestures[MAX_GESTURES][MAX_REF_SIZE];
 static int gesture_sizes[MAX_GESTURES];
 static int gesture_count;
-static int new_gesture_counter = 0;
+
+static void make_a_gesture();
 
 static int align(DataVec *ges1, int size1, DataVec *ges2, int size2) { // returns delay for the correlation with the greatest ratio between min/max
   // do x
   int i, j;
   int sumx = 0, sumy = 0, sumz = 0;
-  int maxx = 0, maxy = 0, maxz = 0, minx = 0, miny = 0, minz = 0, delx = 0, dely = 0, delz = 0, del = 0;
-  float maxr, ry, rz;
+  int maxx = 0, maxy = 0, maxz = 0, minx = 0, miny = 0, minz = 0, delx = 0, dely = 0, delz = 0, del = 0, maxd, dy, dz;
   for (i = -size2+1; i < size1+size2; i++) {
     sumx = 0;
     sumy = 0;
@@ -112,14 +115,14 @@ static int align(DataVec *ges1, int size1, DataVec *ges2, int size2) { // return
     }
   }
   del = delx;
-  maxr = (float)maxx/minx;
-  ry = (float)maxx/minx;
-  rz = (float)maxx/minx;
-  if (ry > maxr) {
+  maxd = abs(maxx-minx);
+  dy = abs(maxy-miny);
+  dz = abs(maxz-minz);
+  if (dy > maxd) {
     del = dely;
-    maxr = ry;
+    maxd = dy;
   }
-  if (rz > maxr) {
+  if (dz > maxd) {
     del = delz;
     // maxr = rz; // unneeded
   }
@@ -175,6 +178,8 @@ static void update_time() {
 static void timer_callback(void *data) {
   // Long lived buffer
   static char s_buffer[128];
+  static char s_buffer2[128];
+    
   static float x_mavg;
   static float y_mavg;
   static float z_mavg;
@@ -206,106 +211,127 @@ static void timer_callback(void *data) {
     accel_buff[head].y = accel.y;
     accel_buff[head].z = accel.z;
     head = (head+1)%BUFF_SIZE;
-  }
-  if (head >= MAX_REF_SIZE) {
-    start_proc = 1;
-    APP_LOG(APP_LOG_LEVEL_INFO, "Starting processing");
-    x_mavg = accel_buff[head].x;
-    y_mavg = accel_buff[head].y;
-    z_mavg = accel_buff[head].z;
-    x_diff = 0;
-    y_diff = 0;
-    z_diff = 0;
-  }
-  if (start_proc) {
-    // Do dsp here
-    x_mavg = x_mavg + alpha*((float)accel.x - x_mavg);
-    y_mavg = y_mavg + alpha*((float)accel.y - y_mavg);
-    z_mavg = z_mavg + alpha*((float)accel.z - z_mavg);
-    x_diff = (float)accel.x - x_mavg;
-    y_diff = (float)accel.y - y_mavg;
-    z_diff = (float)accel.z - z_mavg;
-    still = x_diff*x_diff + y_diff*y_diff + z_diff*z_diff;
-    if (make_gesture) { // we were told to create a gesture by the app
-      if (!find_ref) { // wait for stillness
-	if (still < still_thresh) { // it is still
-	  count++;
-	  if (count >= count_thresh) { // achieved stillness
-	    count = 0;
-	    if (second) { // second (end) stillness
-	      // temp_ges now holds our references
-	      // memcpy(gestures[gesture_count],temp_ges[temp_count],MAX_REF_SIZE); // copy to gesture array
-	      temp_count++;
-	      if (temp_count >= 3) { // finished finding references
-		// we now align and average the references
-		delay1 = align(temp_ges[0],temp_ges_size[0],temp_ges[1],temp_ges_size[1]); // returns delay of second to match first
-		delay2 = align(temp_ges[0],temp_ges_size[0],temp_ges[2],temp_ges_size[2]);
-		start = min(0,delay1);
-		start = min(start,delay2);
-		end = max(temp_ges_size[0], temp_ges_size[1]+delay1);
-		end = max(end, temp_ges_size[2]+delay2);
-		num = 0;
-		size = end-start;
-		for (i = 0; i < size; i++) {
-		  gestures[gesture_count][i].x = 0;
-		  gestures[gesture_count][i].y = 0;
-		  gestures[gesture_count][i].z = 0;
-		  if (i+start >= 0) {
-		    num++;
-		    gestures[gesture_count][i].x += temp_ges[0][i+start].x;
-		    gestures[gesture_count][i].y += temp_ges[0][i+start].y;
-		    gestures[gesture_count][i].z += temp_ges[0][i+start].z;
+    if (head >= MAX_REF_SIZE && !start_proc) {
+      start_proc = 1;
+      APP_LOG(APP_LOG_LEVEL_INFO, "Starting processing");
+      x_mavg = accel_buff[head].x;
+      y_mavg = accel_buff[head].y;
+      z_mavg = accel_buff[head].z;
+      x_diff = 0;
+      y_diff = 0;
+      z_diff = 0;
+    }
+    if (start_proc) {
+      // Do dsp here
+      x_mavg = x_mavg + alpha*((float)accel.x - x_mavg);
+      y_mavg = y_mavg + alpha*((float)accel.y - y_mavg);
+      z_mavg = z_mavg + alpha*((float)accel.z - z_mavg);
+      x_diff = (float)accel.x - x_mavg;
+      y_diff = (float)accel.y - y_mavg;
+      z_diff = (float)accel.z - z_mavg;
+      still = x_diff*x_diff + y_diff*y_diff + z_diff*z_diff;
+      snprintf(s_buffer2, sizeof(s_buffer2), "S: %d", (int)still);
+      text_layer_set_text(s_output_layer2, s_buffer2);
+      if (make_gesture) { // we were told to create a gesture by the app
+	if (!find_ref) { // wait for stillness
+	  if (still < still_thresh) { // it is still
+	    count++;
+	    if (count >= count_thresh) { // achieved stillness
+	      text_layer_set_text(s_stay_still, "Go!");
+	      count = 0;
+	      if (second) { // second (end) stillness. we found one temporary reference
+		// temp_ges[temp_count] now holds our reference
+		temp_count++;
+		second = 0;
+		make_gesture = 0;
+		text_layer_destroy(s_stay_still);
+		make_a_gesture();
+		if (temp_count >= 3) { // finished finding references
+		  APP_LOG(APP_LOG_LEVEL_INFO, "Aligning and Averaging");
+		  // we now align and average the references
+		  delay1 = align(temp_ges[0],temp_ges_size[0],temp_ges[1],temp_ges_size[1]); // returns delay of second to match first
+		  APP_LOG(APP_LOG_LEVEL_INFO, "delay1: %d", delay1);
+		  delay2 = align(temp_ges[0],temp_ges_size[0],temp_ges[2],temp_ges_size[2]);
+		  APP_LOG(APP_LOG_LEVEL_INFO, "delay2: %d", delay2);
+		  start = min(0,delay1);
+		  start = min(start,delay2);
+		  end = max(temp_ges_size[0], temp_ges_size[1]+delay1);
+		  end = max(end, temp_ges_size[2]+delay2);
+		  num = 0;
+		  size = end-start;
+		  for (i = 0; i < size; i++) {
+		    gestures[gesture_count][i].x = 0;
+		    gestures[gesture_count][i].y = 0;
+		    gestures[gesture_count][i].z = 0;
+		    if (i+start >= 0 && i+start < temp_ges_size[0]) {
+		      num++;
+		      gestures[gesture_count][i].x += temp_ges[0][i+start].x;
+		      gestures[gesture_count][i].y += temp_ges[0][i+start].y;
+		      gestures[gesture_count][i].z += temp_ges[0][i+start].z;
+		    }
+		    if (i+start >= delay1 && i+start < temp_ges_size[1] + delay1) {
+		      num++;
+		      gestures[gesture_count][i].x += temp_ges[1][i+start-delay1].x;
+		      gestures[gesture_count][i].y += temp_ges[1][i+start-delay1].y;
+		      gestures[gesture_count][i].z += temp_ges[1][i+start-delay1].z;
+		    }
+		    if (i+start >= delay2 && i+start < temp_ges_size[2] + delay2) {
+		      num++;
+		      gestures[gesture_count][i].x += temp_ges[2][i+start-delay2].x;
+		      gestures[gesture_count][i].y += temp_ges[2][i+start-delay2].y;
+		      gestures[gesture_count][i].z += temp_ges[2][i+start-delay2].z;
+		    }
+		    gestures[gesture_count][i].x /= num;
+		    gestures[gesture_count][i].y /= num;
+		    gestures[gesture_count][i].z /= num;
+		    APP_LOG(APP_LOG_LEVEL_INFO, "num:%d", num);
+		    num = 0;
 		  }
-		  if (i+start >= delay1) {
-		    num++;
-		    gestures[gesture_count][i].x += temp_ges[1][i+start-delay1].x;
-		    gestures[gesture_count][i].y += temp_ges[1][i+start-delay1].y;
-		    gestures[gesture_count][i].z += temp_ges[1][i+start-delay1].z;
-		  }
-		  if (i+start >= delay2) {
-		    num++;
-		    gestures[gesture_count][i].x += temp_ges[1][i+start-delay2].x;
-		    gestures[gesture_count][i].y += temp_ges[1][i+start-delay2].y;
-		    gestures[gesture_count][i].z += temp_ges[1][i+start-delay2].z;
-		  }
-		  gestures[gesture_count][i].x /= num;
-		  gestures[gesture_count][i].y /= num;
-		  gestures[gesture_count][i].z /= num;		  
+		  gesture_sizes[gesture_count] = size;
+		  APP_LOG(APP_LOG_LEVEL_INFO, "Made gesture of size %d", size);
+		  /*for (i = 0; i < size; i++) {
+		    APP_LOG(APP_LOG_LEVEL_INFO, "%d", gestures[gesture_count][i].z);
+		    }*/
+		  light_enable(false);
+		  // send_phone_message(gesture_count, gestures[gesture_count], size);
+		  gesture_count++;
+		  temp_count = 0;
 		}
-		gesture_sizes[gesture_count] = size;
-		// send_phone_message(gesture_count, gestures[gesture_count], size);
-		gesture_count++;
-		temp_count = 0;
+	      } else { // this is the first stillness. now find reference
+		find_ref = 1;
 	      }
-	    } else { // this is the first stillness. now find reference
-	      find_ref = 1;
 	    }
 	  }
-	}
-      } else { // finding reference
-	if (still >= still_thresh) { // moving
-	  if (count < MAX_REF_SIZE) {
-	    temp_ges[temp_count][count].x = accel.x;
-	    temp_ges[temp_count][count].y = accel.y;
-	    temp_ges[temp_count][count].z = accel.z;
-	    count++;
-	  } else { // hit max reference size. finished finding reference
-	    temp_ges_size[temp_count] = MAX_REF_SIZE;
-	    find_ref = 0;
+	} else { // finding reference
+	  if (still >= still_thresh) { // moving
+	    if (count < MAX_REF_SIZE) {
+	      temp_ges[temp_count][count].x = accel.x;
+	      temp_ges[temp_count][count].y = accel.y;
+	      temp_ges[temp_count][count].z = accel.z;
+	      count++;
+	    } else { // hit max reference size. finished finding reference
+	      APP_LOG(APP_LOG_LEVEL_INFO, "Hit max ref");
+	      temp_ges_size[temp_count] = MAX_REF_SIZE;
+	      find_ref = 0;
+	      count = 0;
+	      second = 1; // find second stillness
+	    }
+	  } else { // hit stillness
+	    if (count >= count_thresh) { // finished finding reference
+	      APP_LOG(APP_LOG_LEVEL_INFO, "Made a ref of size %d", count);
+	      /*for (i = 0; i < count; i++) {
+		APP_LOG(APP_LOG_LEVEL_INFO, "%d", temp_ges[temp_count][i].z);
+		}*/
+	      temp_ges_size[temp_count] = count;
+	      find_ref = 0;
+	      second = 1;
+	    } // else we hit a false positive. restart counter but keep finding a reference
 	    count = 0;
-	    second = 1; // find second stillness
 	  }
-	} else { // hit stillness
-	  if (count >= count_thresh) { // finished finding reference
-	    temp_ges_size[temp_count] = MAX_REF_SIZE;
-	    find_ref = 0;
-	    second = 1;
-	  } // else we hit a false positive. restart counter but keep finding a reference
-	  count = 0;
 	}
-      }
-    } else { // listening regularly
+      } else { // listening regularly
 
+      }
     }
   }
   app_timer_register(ACCEL_STEP_MS, timer_callback, NULL);
@@ -326,6 +352,13 @@ static void main_window_load(Window *window) {
   text_layer_set_text(s_output_layer, "No data yet.");
   text_layer_set_overflow_mode(s_output_layer, GTextOverflowModeWordWrap);
   layer_add_child(window_layer, text_layer_get_layer(s_output_layer));
+
+  // Create output TextLayer
+  s_output_layer2 = text_layer_create(GRect(5, 140, 139, 30));
+  text_layer_set_font(s_output_layer2, fonts_get_system_font(FONT_KEY_GOTHIC_24));
+  text_layer_set_text(s_output_layer2, "No data yet.");
+  text_layer_set_overflow_mode(s_output_layer2, GTextOverflowModeWordWrap);
+  layer_add_child(window_layer, text_layer_get_layer(s_output_layer2));
 
   // Put time
   s_time_layer = text_layer_create(GRect(5, 52, 139, 50));
@@ -349,7 +382,8 @@ static void main_window_unload(Window *window) {
   bitmap_layer_destroy(s_background_layer);
 
   // Destroy output TextLayer
-  // text_layer_destroy(s_output_layer);
+  text_layer_destroy(s_output_layer);
+  text_layer_destroy(s_output_layer2);
 }
 
 static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
@@ -368,48 +402,49 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
   }
 }
 
-static void make_a_gesture() {
+static void gesture_callback3() {
   Layer *window_layer = window_get_root_layer(s_main_window);
+  GRect window_bounds = layer_get_bounds(window_layer);
+  //s_stay_still = text_layer_create(GRect(0, 0, window_bounds.size.w, window_bounds.size.h));
+  s_stay_still = text_layer_create(GRect(0, 0, window_bounds.size.w, 40));
+  text_layer_set_background_color(s_stay_still, GColorWhite);
+  text_layer_set_text_color(s_stay_still, GColorBlack);
+  text_layer_set_text(s_stay_still, "Stay Still");
+  text_layer_set_font(s_stay_still, fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK));
+  text_layer_set_text_alignment(s_stay_still, GTextAlignmentCenter);
+  text_layer_set_overflow_mode(s_stay_still, GTextOverflowModeWordWrap);
+  layer_add_child(window_layer, text_layer_get_layer(s_stay_still));
+  text_layer_destroy(number);
+  make_gesture = 1;
+}
+
+static void gesture_callback2() {
+  text_layer_set_text(number, "1");
+  app_timer_register(1*1000, gesture_callback3, NULL);
+}
+
+
+static void gesture_callback1() {
+  text_layer_set_text(number, "2");
+  app_timer_register(1*1000, gesture_callback2, NULL);
+}
+
+static void make_a_gesture() {
+  if (temp_count >= 3) return;
+  APP_LOG(APP_LOG_LEVEL_INFO, "making gesture");  
+  Layer *window_layer = window_get_root_layer(s_main_window);
+  GRect window_bounds = layer_get_bounds(window_layer);
+
   vibes_short_pulse();
   light_enable(true);
-  for (new_gesture_counter = 0; new_gesture_counter < 3; new_gesture_counter++) {
-    TextLayer *number_3 = text_layer_create(GRect(0, 55, 144, 50));
-    text_layer_set_background_color(number_3, GColorClear);
-    text_layer_set_text_color(number_3, GColorBlack);
-    text_layer_set_text(number_3, "3");
-    text_layer_set_font(number_3, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
-    text_layer_set_text_alignment(number_3, GTextAlignmentCenter);
-    layer_add_child(window_layer, text_layer_get_layer(number_3));
-    psleep(1 * 1000);
-    text_layer_destroy(number_3);
-    TextLayer *number_2 = text_layer_create(GRect(0, 55, 144, 50));
-    text_layer_set_background_color(number_2, GColorClear);
-    text_layer_set_text_color(number_2, GColorBlack);
-    text_layer_set_text(number_2, "2");
-    text_layer_set_font(number_2, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
-    text_layer_set_text_alignment(number_2, GTextAlignmentCenter);
-    layer_add_child(window_layer, text_layer_get_layer(number_2));
-    psleep(1 * 1000);
-    text_layer_destroy(number_2);
-    TextLayer *number_1 = text_layer_create(GRect(0, 55, 144, 50));
-    text_layer_set_background_color(number_1, GColorClear);
-    text_layer_set_text_color(number_1, GColorBlack);
-    text_layer_set_text(number_1, "1");
-    text_layer_set_font(number_1, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
-    text_layer_set_text_alignment(number_1, GTextAlignmentCenter);
-    layer_add_child(window_layer, text_layer_get_layer(number_1));
-    psleep(1 * 1000);
-    text_layer_destroy(number_1);
-    s_stay_still = text_layer_create(GRect(0, 55, 144, 50));
-    text_layer_set_background_color(s_stay_still, GColorClear);
-    text_layer_set_text_color(s_stay_still, GColorBlack);
-    text_layer_set_text(s_stay_still, "3");
-    text_layer_set_font(s_stay_still, fonts_get_system_font(FONT_KEY_BITHAM_30_BLACK));
-    text_layer_set_text_alignment(s_stay_still, GTextAlignmentCenter);
-    text_layer_set_overflow_mode(s_stay_still, GTextOverflowModeWordWrap);
-    layer_add_child(window_layer, text_layer_get_layer(s_stay_still));
-    make_gesture = 1;
-  }
+  number = text_layer_create(GRect(0, 0, window_bounds.size.w, window_bounds.size.h));
+  text_layer_set_background_color(number, GColorWhite);
+  text_layer_set_text_color(number, GColorBlack);
+  text_layer_set_text(number, "3");
+  text_layer_set_font(number, fonts_get_system_font(FONT_KEY_BITHAM_42_BOLD));
+  text_layer_set_text_alignment(number, GTextAlignmentCenter);
+  layer_add_child(window_layer, text_layer_get_layer(number));
+  app_timer_register(1*1000, gesture_callback1, NULL);
 }
 
 static void inbox_received_callback(DictionaryIterator *iterator, void *context) {
@@ -487,7 +522,7 @@ static void init() {
   // Open AppMessage
   app_message_open(app_message_inbox_size_maximum(), app_message_outbox_size_maximum());
 
-
+  make_a_gesture(); // DEBUGGING PURPOSES *******************
   // Choose update rate
   // accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ); // 25Hz is default
 
