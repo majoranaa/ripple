@@ -55,7 +55,7 @@ static int start_proc; // begin processing
 static int make_gesture;
 static const float alpha = 0.1;
 static const float still_thresh = 1e5;
-static const float sum_thresh = 1e8;
+static const float sum_thresh = 7e6;
 static const int count_thresh = 4;
 
 // array of recorded gestures
@@ -192,12 +192,13 @@ static void timer_callback(void *data) {
   static int count = 0;
   static int find_ref = 0;
   static int second = 0;
+  static int was_listening = 0;
   
   int delay1; // used for correlation
   int delay2;
   int delay; // correlation during regular listening
-  int start, end, num, size, min_ges, min_ges_i;
-  float sum, avg;
+  int start, end, num, size, min_ges_i;
+  float sum, avg, min_ges;
   int i, j;
   AccelData accel = (AccelData) { .x = 0, .y = 0, .z = 0 };
   accel_service_peek(&accel);
@@ -237,11 +238,16 @@ static void timer_callback(void *data) {
       snprintf(s_buffer2, sizeof(s_buffer2), "S: %d", (int)still);
       text_layer_set_text(s_output_layer2, s_buffer2);
       if (make_gesture) { // we were told to create a gesture by the app
+	if (was_listening) {
+	  find_ref = 0;
+	  count = 0;
+	  second = 0;
+	  was_listening = 0;
+	}
 	if (!find_ref) { // wait for stillness
 	  if (still < still_thresh) { // it is still
 	    count++;
 	    if (count >= count_thresh) { // achieved stillness
-	      APP_LOG(APP_LOG_LEVEL_INFO, "HERE");
 	      text_layer_set_text(s_stay_still, "Go!");
 	      count = 0;
 	      if (second) { // second (end) stillness. we found one temporary reference
@@ -289,7 +295,7 @@ static void timer_callback(void *data) {
 		    gestures[gesture_count][i].x /= num;
 		    gestures[gesture_count][i].y /= num;
 		    gestures[gesture_count][i].z /= num;
-		    APP_LOG(APP_LOG_LEVEL_INFO, "num:%d", num);
+		    //APP_LOG(APP_LOG_LEVEL_INFO, "num:%d", num);
 		    num = 0;
 		  }
 		  gesture_sizes[gesture_count] = size;
@@ -335,6 +341,7 @@ static void timer_callback(void *data) {
 	  }
 	}
       } else { // listening regularly
+	was_listening = 1;
 	if (!find_ref) {
 	  if (still < still_thresh) { // is still
 	    count++;
@@ -345,14 +352,15 @@ static void timer_callback(void *data) {
 		second = 0;
 		min_ges_i = 0;
 		min_ges = 0;
-		for (i = 0; i < gesture_count; i ++) { // evaluate similarity of each gesture
+		for (i = 0; i < gesture_count; i++) { // evaluate similarity of each gesture
 		  APP_LOG(APP_LOG_LEVEL_INFO, "evaluating gesture num: %d", i);
 		  delay = align(accel_buff, MAX_BUFF_SIZE, gestures[i], gesture_sizes[i]);
+		  APP_LOG(APP_LOG_LEVEL_INFO, "delay is: %d", delay);
 		  sum = 0;
 		  for (j = max(0,delay); j < min(MAX_BUFF_SIZE,gesture_sizes[i]+delay); j++) {
 		    sum += (((float)(gestures[i][j].x - accel_buff[j-delay].x))*((float)(gestures[i][j].x - accel_buff[j-delay].x))) + (((float)(gestures[i][j].y - accel_buff[j-delay].y))*((float)(gestures[i][j].y - accel_buff[j-delay].y))) + (((float)(gestures[i][j].z - accel_buff[j-delay].z))*((float)(gestures[i][j].z - accel_buff[j-delay].z)));
 		  }
-		  avg = sum/(max(0,delay) - min(MAX_BUFF_SIZE,gesture_sizes[i]+delay));
+		  avg = sum/(min(MAX_BUFF_SIZE,gesture_sizes[i]+delay) - max(0,delay));
 		  if (i == 0) {
 		    min_ges = avg;
 		  }
@@ -361,8 +369,8 @@ static void timer_callback(void *data) {
 		    min_ges_i = i;
 		  }
 		}
-		APP_LOG(APP_LOG_LEVEL_INFO, "minimum square error: %d", (int)min_ges);
-		if (min_ges < sum_thresh) {
+		APP_LOG(APP_LOG_LEVEL_INFO, "minimum square error: %de3", (int)(min_ges/1000));
+		if (min_ges < sum_thresh && gesture_count) {
 		  // found gesture!
 		  // send gesture for min_ges_i
 		  APP_LOG(APP_LOG_LEVEL_INFO, "found gesture %d", min_ges_i);
@@ -587,7 +595,7 @@ static void init() {
   // Open AppMessage
   app_message_open(app_message_inbox_size_maximum(), app_message_outbox_size_maximum());
 
-  make_a_gesture(); // DEBUGGING PURPOSES *******************
+  app_timer_register(3000, make_a_gesture, NULL); // DEBUGGING PURPOSES *******************
   // Choose update rate
   // accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ); // 25Hz is default
 
