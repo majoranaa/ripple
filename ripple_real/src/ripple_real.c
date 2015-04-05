@@ -56,7 +56,7 @@ static int make_gesture;
 static const float alpha = 0.1;
 static const float still_thresh = 1e5;
 static const float sum_thresh = 2e6;
-static const int count_thresh = 10;
+static const int count_thresh = 4;
 
 // array of recorded gestures
 static DataVec temp_ges[3][MAX_REF_SIZE];
