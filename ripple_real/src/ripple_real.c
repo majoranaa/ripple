@@ -18,7 +18,7 @@
 #define KEY_OLD_GESTURE_ID 5
 #define KEY_OLD_GESTURE_DATA 6
 #define KEY_OLD_GESTURE_DATA_SIZE 7
-#define KEY_IS_RUNNING 8
+#define KEY_ON_START 8
 
 #define MAX_REF_SIZE 30 // this is the max number of samples that can be in a reference
 #define MAX_GESTURES 9 // 4 default
@@ -55,8 +55,8 @@ static int start_proc; // begin processing
 static int make_gesture;
 static const float alpha = 0.1;
 static const float still_thresh = 1e5;
-static const float sum_thresh = 7e6;
-static const int count_thresh = 4;
+static const float sum_thresh = 2e6;
+static const int count_thresh = 10;
 
 // array of recorded gestures
 static DataVec temp_ges[3][MAX_REF_SIZE];
@@ -65,6 +65,7 @@ static int temp_count;
 static DataVec gestures[MAX_GESTURES][MAX_REF_SIZE];
 static int gesture_sizes[MAX_GESTURES];
 static int gesture_count;
+//static int gesture_ids[MAX_GESTURES];
 
 static void make_a_gesture();
 
@@ -177,6 +178,21 @@ static void update_time() {
   }
 */
 
+static void send_phone_message(int id, DataVec *data, int size) {
+  const uint8_t key_count = 3;
+  const uint32_t buffer_size = dict_calc_buffer_size(key_count, 4, sizeof(DataVec) * size, 4);
+  uint8_t buffer[buffer_size];
+  DictionaryIterator iter;
+  DictionaryIterator *iter_p = &iter;
+  dict_write_begin(iter_p, buffer, sizeof(buffer));
+  app_message_outbox_begin(&iter_p);
+  dict_write_int32(iter_p, (uint32_t)KEY_NEW_GESTURE_ID, (uint32_t)id);
+  dict_write_int32(iter_p, (uint32_t)KEY_NEW_GESTURE_DATA_SIZE, (uint32_t)size);
+  dict_write_data(iter_p, (uint32_t)KEY_NEW_GESTURE_DATA, (uint8_t *)data, (uint16_t)(sizeof(DataVec) * size));
+  app_message_outbox_send();
+  dict_write_end(iter_p);
+}
+
 static void timer_callback(void *data) {
   // Long lived buffer
   static char s_buffer[128];
@@ -193,6 +209,7 @@ static void timer_callback(void *data) {
   static int find_ref = 0;
   static int second = 0;
   static int was_listening = 0;
+  static int show_still = 0;
   
   int delay1; // used for correlation
   int delay2;
@@ -235,7 +252,11 @@ static void timer_callback(void *data) {
       y_diff = (float)accel.y - y_mavg;
       z_diff = (float)accel.z - z_mavg;
       still = x_diff*x_diff + y_diff*y_diff + z_diff*z_diff;
-      snprintf(s_buffer2, sizeof(s_buffer2), "S: %d", (int)still);
+      if (show_still) {
+	snprintf(s_buffer2, sizeof(s_buffer2), "STILL S: %d", (int)still);
+      } else {
+	snprintf(s_buffer2, sizeof(s_buffer2), "S: %d", (int)still);
+      }
       text_layer_set_text(s_output_layer2, s_buffer2);
       if (make_gesture) { // we were told to create a gesture by the app
 	if (was_listening) {
@@ -303,8 +324,8 @@ static void timer_callback(void *data) {
 		  /*for (i = 0; i < size; i++) {
 		    APP_LOG(APP_LOG_LEVEL_INFO, "%d", gestures[gesture_count][i].z);
 		    }*/
-		  light_enable(false);
-		  // send_phone_message(gesture_count, gestures[gesture_count], size);
+		  light_enable(false); // success only
+		  send_phone_message(gesture_count, gestures[gesture_count], gesture_sizes[gesture_count]);
 		  gesture_count++;
 		  temp_count = 0;
 		}
@@ -347,6 +368,7 @@ static void timer_callback(void *data) {
 	    count++;
 	    if (count >= count_thresh) { // stillness
 	      APP_LOG(APP_LOG_LEVEL_INFO, "Still");
+	      show_still = 1;
 	      count = 0;
 	      if (second) {
 		second = 0;
@@ -374,6 +396,19 @@ static void timer_callback(void *data) {
 		  // found gesture!
 		  // send gesture for min_ges_i
 		  APP_LOG(APP_LOG_LEVEL_INFO, "found gesture %d", min_ges_i);
+		  /*const uint32_t buffer_size = dict_calc_buffer_size(1, 4);
+		  uint8_t buffer[buffer_size];
+		  DictionaryIterator iter;
+		  DictionaryIterator *iter_p = &iter;
+		  dict_write_begin(iter_p, buffer, sizeof(buffer));
+		  app_message_outbox_begin(&iter_p);
+		  dict_write_int32(iter_p, (uint32_t)KEY_GESTURE, (uint32_t)(min_ges_i+1));
+		  app_message_outbox_send();
+		  dict_write_end(iter_p);*/
+		  DictionaryIterator *iter;
+		  app_message_outbox_begin(&iter);
+		  dict_write_int(iter, KEY_GESTURE, &min_ges_i, sizeof(int), true);
+		  app_message_outbox_send();
 		}
 	      } else { // first stillness, find gesture/reference
 		find_ref = 1;
@@ -390,6 +425,7 @@ static void timer_callback(void *data) {
 	    } else { //hit max buffer size
 	      APP_LOG(APP_LOG_LEVEL_INFO, "Hit max gesture buffer");
 	      accel_size = MAX_BUFF_SIZE;
+	      show_still = 0;
 	      find_ref = 0;
 	      count = 0;
 	      second = 1;
@@ -398,6 +434,7 @@ static void timer_callback(void *data) {
 	    if (count >= count_thresh) { // found gesture/reference
 	      APP_LOG(APP_LOG_LEVEL_INFO, "Hit gesture");
 	      accel_size = count;
+	      show_still = 0;
 	      find_ref = 0;
 	      second = 1;
 	    }
@@ -524,7 +561,9 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
   APP_LOG(APP_LOG_LEVEL_INFO, "Message received!");
 
   Tuple *t = dict_read_first(iterator);
-
+  int id = 0;
+  int valid = 0;
+  
   // For all items
   while(t != NULL) {
     // Which key was received?
@@ -532,15 +571,33 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     case KEY_MAKE_NEW_GESTURE:
       make_a_gesture();
       break;
-    case KEY_NEW_GESTURE_ID:
+    case KEY_OLD_GESTURE_ID: // ***** ID MUST COME BEFORE SIZE & DATA
+      //gesture_ids[gesture_count] = (int)t->value->int32;
+      id = (int)t->value->int32;
+      valid++;
+      APP_LOG(APP_LOG_LEVEL_INFO, "Received gesture id: %d", id);
       break;
-    case KEY_NEW_GESTURE_DATA:
-      break;
-    case KEY_GESTURE:
+    case KEY_OLD_GESTURE_DATA_SIZE:
+      if (valid == 1) {
+	gesture_sizes[id] = (int)t->value->int32;
+	valid++;
+      } else {
+	APP_LOG(APP_LOG_LEVEL_ERROR, "Tried to create gesture without ID");
+      }
       break;
     case KEY_OLD_GESTURE_DATA:
+      if (valid == 2) {
+	memcpy(gestures[gesture_count], (DataVec *)t->value->data, sizeof(DataVec)*gesture_sizes[id]);
+      } else {
+	APP_LOG(APP_LOG_LEVEL_ERROR, "Tried to create gesture without size");
+      }
+      gesture_count++;
       break;
-    case KEY_OLD_GESTURE_ID:
+    case KEY_GESTURE:
+    case KEY_NEW_GESTURE_ID:
+    case KEY_NEW_GESTURE_DATA:
+    case KEY_NEW_GESTURE_DATA_SIZE:
+      APP_LOG(APP_LOG_LEVEL_ERROR, "Incorrect usage of Key %d", (int)t->key);
       break;
     default:
       APP_LOG(APP_LOG_LEVEL_ERROR, "Key %d not recognized!", (int)t->key);
@@ -550,7 +607,6 @@ static void inbox_received_callback(DictionaryIterator *iterator, void *context)
     // Look for next item
     t = dict_read_next(iterator);
   }
-
 }
 
 static void inbox_dropped_callback(AppMessageResult reason, void *context) {
@@ -563,6 +619,23 @@ static void outbox_failed_callback(DictionaryIterator *iterator, AppMessageResul
 
 static void outbox_sent_callback(DictionaryIterator *iterator, void *context) {
   APP_LOG(APP_LOG_LEVEL_INFO, "Outbox send success!");
+}
+
+static void on_ready() {
+  /*const uint32_t buffer_size = dict_calc_buffer_size(1, 4);
+  uint8_t buffer[buffer_size];
+  DictionaryIterator iter;
+  DictionaryIterator *iter_p = &iter;
+  dict_write_begin(iter_p, buffer, sizeof(buffer));
+  app_message_outbox_begin(&iter_p);
+  dict_write_int32(iter_p, (uint32_t)KEY_ON_START, (uint32_t)1);
+  app_message_outbox_send();
+  dict_write_end(iter_p);*/
+  int temp = 1;
+  DictionaryIterator *iter;
+  app_message_outbox_begin(&iter);
+  dict_write_int(iter, KEY_ON_START, &temp, sizeof(int), true);
+  app_message_outbox_send();
 }
 
 static void init() {
@@ -595,7 +668,8 @@ static void init() {
   // Open AppMessage
   app_message_open(app_message_inbox_size_maximum(), app_message_outbox_size_maximum());
 
-  app_timer_register(3000, make_a_gesture, NULL); // DEBUGGING PURPOSES *******************
+  app_timer_register(1000, on_ready, NULL);
+  // app_timer_register(3000, make_a_gesture, NULL); // DEBUGGING PURPOSES *******************
   // Choose update rate
   // accel_service_set_sampling_rate(ACCEL_SAMPLING_25HZ); // 25Hz is default
 

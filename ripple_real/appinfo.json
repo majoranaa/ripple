@@ -9,9 +9,15 @@
 	"watchface": true
     },
     "appKeys": {
-	"MAKE_NEW_GESTURE": 0,
-	"NEW_GESTURE": 1,
-	"GESURE": 2
+	"KEY_MAKE_NEW_GESTURE": 0,
+	"KEY_NEW_GESTURE_ID": 1,
+	"KEY_NEW_GESTURE_DATA": 2,
+	"KEY_NEW_GESTURE_DATA_SIZE": 3,
+	"KEY_GESTURE": 4,
+	"KEY_OLD_GESTURE_ID": 5,
+	"KEY_OLD_GESTURE_DATA": 6,
+	"KEY_OLD_GESTURE_DATA_SIZE": 7,
+	"KEY_ON_START": 8
     },
     "resources": {
 	"media": [
