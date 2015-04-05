@@ -20,9 +20,9 @@
 #define KEY_OLD_GESTURE_DATA_SIZE 7
 #define KEY_IS_RUNNING 8
 
-#define MAX_REF_SIZE 20 // this is the max number of samples that can be in a reference
+#define MAX_REF_SIZE 30 // this is the max number of samples that can be in a reference
 #define MAX_GESTURES 9 // 4 default
-#define BUFF_SIZE 500
+#define MAX_BUFF_SIZE 50
 
 #define max(a,b) (((a)>(b))?(a):(b))
 #define min(a,b) ((a>b)?(b):(a))
@@ -48,12 +48,14 @@ static BitmapLayer *s_background_layer;
 static GBitmap *s_background_bitmap;
 
 // buffer for accel data
-static DataVec accel_buff[BUFF_SIZE];
+static DataVec accel_buff[MAX_BUFF_SIZE];
+static int accel_size;
 static int head; // head of buffer
 static int start_proc; // begin processing
 static int make_gesture;
 static const float alpha = 0.1;
 static const float still_thresh = 1e5;
+static const float sum_thresh = 1e8;
 static const int count_thresh = 4;
 
 // array of recorded gestures
@@ -193,8 +195,10 @@ static void timer_callback(void *data) {
   
   int delay1; // used for correlation
   int delay2;
-  int start, end, num, size;
-  int i;
+  int delay; // correlation during regular listening
+  int start, end, num, size, min_ges, min_ges_i;
+  float sum, avg;
+  int i, j;
   AccelData accel = (AccelData) { .x = 0, .y = 0, .z = 0 };
   accel_service_peek(&accel);
 
@@ -207,16 +211,16 @@ static void timer_callback(void *data) {
   text_layer_set_text(s_output_layer, s_buffer);
 
   if (!accel.did_vibrate) {
-    accel_buff[head].x = accel.x;
-    accel_buff[head].y = accel.y;
-    accel_buff[head].z = accel.z;
-    head = (head+1)%BUFF_SIZE;
+    // accel_buff[head].x = accel.x;
+    // accel_buff[head].y = accel.y;
+    // accel_buff[head].z = accel.z;
+    head = (head+1)%(MAX_BUFF_SIZE);
     if (head >= MAX_REF_SIZE && !start_proc) {
       start_proc = 1;
       APP_LOG(APP_LOG_LEVEL_INFO, "Starting processing");
-      x_mavg = accel_buff[head].x;
-      y_mavg = accel_buff[head].y;
-      z_mavg = accel_buff[head].z;
+      x_mavg = accel.x; // accel_buff[head].x;
+      y_mavg = accel.y; // accel_buff[head].y;
+      z_mavg = accel.z; // accel_buff[head].z;
       x_diff = 0;
       y_diff = 0;
       z_diff = 0;
@@ -237,6 +241,7 @@ static void timer_callback(void *data) {
 	  if (still < still_thresh) { // it is still
 	    count++;
 	    if (count >= count_thresh) { // achieved stillness
+	      APP_LOG(APP_LOG_LEVEL_INFO, "HERE");
 	      text_layer_set_text(s_stay_still, "Go!");
 	      count = 0;
 	      if (second) { // second (end) stillness. we found one temporary reference
@@ -288,7 +293,7 @@ static void timer_callback(void *data) {
 		    num = 0;
 		  }
 		  gesture_sizes[gesture_count] = size;
-		  APP_LOG(APP_LOG_LEVEL_INFO, "Made gesture of size %d", size);
+		  APP_LOG(APP_LOG_LEVEL_INFO, "Made gesture of size %d for id %d ", size, gesture_count);
 		  /*for (i = 0; i < size; i++) {
 		    APP_LOG(APP_LOG_LEVEL_INFO, "%d", gestures[gesture_count][i].z);
 		    }*/
@@ -330,7 +335,67 @@ static void timer_callback(void *data) {
 	  }
 	}
       } else { // listening regularly
-
+	if (!find_ref) {
+	  if (still < still_thresh) { // is still
+	    count++;
+	    if (count >= count_thresh) { // stillness
+	      APP_LOG(APP_LOG_LEVEL_INFO, "Still");
+	      count = 0;
+	      if (second) {
+		second = 0;
+		min_ges_i = 0;
+		min_ges = 0;
+		for (i = 0; i < gesture_count; i ++) { // evaluate similarity of each gesture
+		  APP_LOG(APP_LOG_LEVEL_INFO, "evaluating gesture num: %d", i);
+		  delay = align(accel_buff, MAX_BUFF_SIZE, gestures[i], gesture_sizes[i]);
+		  sum = 0;
+		  for (j = max(0,delay); j < min(MAX_BUFF_SIZE,gesture_sizes[i]+delay); j++) {
+		    sum += (((float)(gestures[i][j].x - accel_buff[j-delay].x))*((float)(gestures[i][j].x - accel_buff[j-delay].x))) + (((float)(gestures[i][j].y - accel_buff[j-delay].y))*((float)(gestures[i][j].y - accel_buff[j-delay].y))) + (((float)(gestures[i][j].z - accel_buff[j-delay].z))*((float)(gestures[i][j].z - accel_buff[j-delay].z)));
+		  }
+		  avg = sum/(max(0,delay) - min(MAX_BUFF_SIZE,gesture_sizes[i]+delay));
+		  if (i == 0) {
+		    min_ges = avg;
+		  }
+		  if (avg < min_ges) {
+		    min_ges = avg;
+		    min_ges_i = i;
+		  }
+		}
+		APP_LOG(APP_LOG_LEVEL_INFO, "minimum square error: %d", (int)min_ges);
+		if (min_ges < sum_thresh) {
+		  // found gesture!
+		  // send gesture for min_ges_i
+		  APP_LOG(APP_LOG_LEVEL_INFO, "found gesture %d", min_ges_i);
+		}
+	      } else { // first stillness, find gesture/reference
+		find_ref = 1;
+	      }
+	    }
+	  }
+	} else { // find gesture/reference
+	  if (still >= still_thresh) { // moving
+	    if (count < MAX_BUFF_SIZE) {
+	      accel_buff[count].x = accel.x;
+	      accel_buff[count].y = accel.y;
+	      accel_buff[count].z = accel.z;
+	      count++;
+	    } else { //hit max buffer size
+	      APP_LOG(APP_LOG_LEVEL_INFO, "Hit max gesture buffer");
+	      accel_size = MAX_BUFF_SIZE;
+	      find_ref = 0;
+	      count = 0;
+	      second = 1;
+	    }
+	  } else { // still
+	    if (count >= count_thresh) { // found gesture/reference
+	      APP_LOG(APP_LOG_LEVEL_INFO, "Hit gesture");
+	      accel_size = count;
+	      find_ref = 0;
+	      second = 1;
+	    }
+	    count = 0;	      
+	  }
+	}
       }
     }
   }
